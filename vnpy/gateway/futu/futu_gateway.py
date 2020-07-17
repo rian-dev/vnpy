@@ -420,7 +420,7 @@ class FutuGateway(BaseGateway):
             open_price=data.open,
             high_price=data.high,
             low_price=data.low,
-            close_price=data.low
+            close_price=data.close
         )
         self.history_list.append(data_bar)
         while self.page_req_key is not None:
@@ -446,7 +446,7 @@ class FutuGateway(BaseGateway):
                     open_price=df.open,
                     high_price=df.high,
                     low_price=df.low,
-                    close_price=df.low
+                    close_price=df.close
                 )
                 self.history_list.append(data_bar)
         
