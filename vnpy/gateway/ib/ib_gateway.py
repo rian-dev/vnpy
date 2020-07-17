@@ -17,6 +17,7 @@ from threading import Thread, Condition
 from typing import Optional
 import shelve
 from tzlocal import get_localzone
+from pytz import timezone
 
 from ibapi import comm
 from ibapi.client import EClient
@@ -224,6 +225,7 @@ class IbApi(EWrapper):
     data_filename = "ib_contract_data.db"
     data_filepath = str(get_file_path(data_filename))
 
+    dst_tz = timezone("America/New_York")
     local_tz = get_localzone()
 
     def __init__(self, gateway: BaseGateway):
@@ -360,7 +362,9 @@ class IbApi(EWrapper):
 
         tick = self.ticks[reqId]
         dt = datetime.fromtimestamp(int(value))
-        tick.datetime = dt.replace(tzinfo=self.local_tz)
+        dt = dt.replace(tzinfo=self.local_tz)
+        tick.datetime = dt.astimezone(tz=self.dst_tz)
+        # print(dt,"VT ",tick.datetime)
 
         self.gateway.on_tick(copy(tick))
 
@@ -565,8 +569,9 @@ class IbApi(EWrapper):
         super().execDetails(reqId, contract, execution)
 
         dt = datetime.strptime(execution.time, "%Y%m%d  %H:%M:%S")
-        dt = dt.replace(tzinfo=self.local_tz)
-
+        dt = dt.replace(tzinfo= self.local_tz)
+        dt = dt.astimezone(tz= self.dst_tz)
+        print("excu exchange",contract.exchange,"time:",dt)
         trade = TradeData(
             symbol=contract.conId,
             exchange=EXCHANGE_IB2VT.get(contract.exchange, contract.exchange),
@@ -613,6 +618,7 @@ class IbApi(EWrapper):
             close_price=ib_bar.close,
             gateway_name=self.gateway_name
         )
+        print(bar.datetime)
 
         self.history_buf.append(bar)
 
