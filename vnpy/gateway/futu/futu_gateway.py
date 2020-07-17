@@ -22,14 +22,16 @@ from futu import (
     RET_OK,
     StockQuoteHandlerBase,
     TradeDealHandlerBase,
-    TradeOrderHandlerBase
+    TradeOrderHandlerBase,
+    KLType
 )
 
-from vnpy.trader.constant import Direction, Exchange, Product, Status
+from vnpy.trader.constant import Direction, Exchange, Product, Status, Interval
 from vnpy.trader.event import EVENT_TIMER
 from vnpy.trader.gateway import BaseGateway
 from vnpy.trader.object import (
     TickData,
+    BarData,
     OrderData,
     TradeData,
     AccountData,
@@ -37,7 +39,8 @@ from vnpy.trader.object import (
     PositionData,
     SubscribeRequest,
     OrderRequest,
-    CancelRequest
+    CancelRequest,
+    HistoryRequest
 )
 
 EXCHANGE_VT2FUTU = {
@@ -53,6 +56,13 @@ PRODUCT_VT2FUTU = {
     Product.ETF: "ETF",
     Product.WARRANT: "WARRANT",
     Product.BOND: "BOND",
+}
+
+INTERVAL_KLINE_VT2FUTU = {
+    Interval.MINUTE: KLType.K_1M,
+    Interval.HOUR:KLType.K_60M,
+    Interval.DAILY: KLType.K_DAY,
+    Interval.WEEKLY: KLType.K_WEEK
 }
 
 DIRECTION_VT2FUTU = {
@@ -113,6 +123,10 @@ class FutuGateway(BaseGateway):
         self.count = 0
         self.interval = 1
         self.query_funcs = [self.query_account, self.query_position]
+
+        # For historical data fetching
+        self.page_req_key = None
+        self.history_list = []
 
     def connect(self, setting: dict):
         """"""
@@ -378,6 +392,67 @@ class FutuGateway(BaseGateway):
 
         self.process_deal(data)
         self.write_log("成交查询成功")
+
+    def query_history(self, req: HistoryRequest):
+        """"""
+        self.write_log("FUTU Gateway:开始下载")
+        print(f"FUTU download{req.symbol}")
+        print(f"req.startdate:{req.start} - {req.end}")
+        code = convert_symbol_vt2futu(req.symbol, req.exchange)
+        start = req.start.strftime("%Y-%m-%d")
+        end = req.end.strftime("%Y-%m-%d")
+
+        ret, data, self.page_req_key = self.quote_ctx.request_history_kline(
+            code,
+            start=start,
+            end=end,
+            ktype=INTERVAL_KLINE_VT2FUTU[req.interval],
+            max_count=1
+        )
+        dt =datetime.strptime(data.ix[0].time_key, "%Y-%m-%d %H:%M:%S")
+        data_bar = BarData(
+            gateway_name = self.gateway_name,
+            symbol = req.symbol,
+            exchange = req.exchange,
+            datetime = dt,
+            interval=req.interval,
+            volume=float(data.volume),
+            open_price=data.open,
+            high_price=data.high,
+            low_price=data.low,
+            close_price=data.low
+        )
+        self.history_list.append(data_bar)
+        while self.page_req_key is not None:
+            ret, data, self.page_req_key = self.quote_ctx.request_history_kline(
+                code,
+                start=start,
+                end=end,
+                ktype=INTERVAL_KLINE_VT2FUTU[req.interval],
+                max_count=1000,
+                page_req_key=self.page_req_key
+            )
+            # data append
+            for index, df in data.iterrows():
+                print(index," df",df.time_key)
+                dt =datetime.strptime(df.time_key, "%Y-%m-%d %H:%M:%S")
+                data_bar = BarData(
+                    gateway_name = self.gateway_name,
+                    symbol = req.symbol,
+                    exchange = req.exchange,
+                    datetime = dt,
+                    interval=req.interval,
+                    volume=float(df.volume),
+                    open_price=df.open,
+                    high_price=df.high,
+                    low_price=df.low,
+                    close_price=df.low
+                )
+                self.history_list.append(data_bar)
+        
+        history = self.history_list
+        self.history_list = []
+        return history
 
     def close(self):
         """"""
